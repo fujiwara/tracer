@@ -6,6 +6,8 @@ tracer shows events and logs of the tasks order by timestamp.
 
 ### example
 
+Run a task successfully and shutdown.
+
 ```
 $ tracer default 84b5991528504856a2f003b7da9b2b82
 2021-11-27T01:49:41.251+09:00   TASK    Created
@@ -45,4 +47,16 @@ $ tracer default 84b5991528504856a2f003b7da9b2b82
 2021-11-27T02:01:59.215+09:00   CONTAINER:nginx 2021/11/26 17:01:59 [notice] 1#1: exit
 2021-11-27T02:02:10.402+09:00   TASK    Execution stopped
 2021-11-27T02:02:33.559+09:00   TASK    Stopped
+```
+
+Failed to run task. (typo container image URL)
+
+```
+$ tracer default 9f654c76cde14c7c85cf54dce087658a
+2021-11-27T02:29:15.055+09:00   TASK    Created
+2021-11-27T02:29:33.527+09:00   TASK    Execution stopped
+2021-11-27T02:29:43.569+09:00   TASK    Stopping
+2021-11-27T02:29:43.569+09:00   TASK    StoppedReason:CannotPullContainerError: inspect image has been retried 1 time(s): failed to resolve ref "docker.io/library/ngin:latest": pull access denied, repository does not exist or may require authorization: server message: insufficient_scope: authorization failed
+2021-11-27T02:29:43.569+09:00   TASK    StoppedCode:TaskFailedToStart
+2021-11-27T02:29:57.070+09:00   TASK    Stopped
 ```
