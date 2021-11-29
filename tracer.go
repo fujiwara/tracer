@@ -7,6 +7,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
@@ -24,19 +25,29 @@ type Tracer struct {
 	ctx      context.Context
 	ecs      *ecs.ECS
 	logs     *cloudwatchlogs.CloudWatchLogs
-	timeline Timeline
+	timeline *Timeline
 }
 
 func (t *Tracer) AddEvent(ts *time.Time, source, message string) {
-	t.timeline.events = append(t.timeline.events, newEvent(ts, source, message))
+	t.timeline.Add(newEvent(ts, source, message))
 }
 
 type Timeline struct {
 	events []*TimeLineEvent
 	seen   map[string]bool
+	mu     sync.Mutex
 }
 
-func (tl Timeline) Print(w io.Writer) {
+func (tl *Timeline) Add(event *TimeLineEvent) {
+	tl.mu.Lock()
+	defer tl.mu.Unlock()
+	tl.events = append(tl.events, event)
+}
+
+func (tl *Timeline) Print(w io.Writer) {
+	tl.mu.Lock()
+	defer tl.mu.Unlock()
+
 	tls := make([]*TimeLineEvent, 0, len(tl.events))
 	for _, e := range tl.events {
 		if e.Timestamp == nil {
@@ -69,10 +80,12 @@ func (e *TimeLineEvent) String() string {
 
 func New(ctx context.Context, sess *session.Session) (*Tracer, error) {
 	tracer := &Tracer{
-		ctx:      ctx,
-		ecs:      ecs.New(sess),
-		logs:     cloudwatchlogs.New(sess),
-		timeline: Timeline{seen: make(map[string]bool)},
+		ctx:  ctx,
+		ecs:  ecs.New(sess),
+		logs: cloudwatchlogs.New(sess),
+		timeline: &Timeline{
+			seen: make(map[string]bool),
+		},
 	}
 	return tracer, nil
 }
@@ -110,6 +123,7 @@ func (t *Tracer) traceTask(cluster string, taskID string) (*ecs.Task, error) {
 	}
 	task := res.Tasks[0]
 	t.AddEvent(task.CreatedAt, "TASK", "Created")
+	t.AddEvent(task.ConnectivityAt, "TASK", "Connected")
 	t.AddEvent(task.StartedAt, "TASK", "Started")
 	t.AddEvent(task.PullStartedAt, "TASK", "Pull started")
 	t.AddEvent(task.PullStoppedAt, "TASK", "Pull stopped")
@@ -132,7 +146,9 @@ func (t *Tracer) traceLogs(task *ecs.Task) error {
 	if err != nil {
 		return errors.Wrap(err, "failed to describe task definition")
 	}
+	var wg sync.WaitGroup
 	for _, c := range res.TaskDefinition.ContainerDefinitions {
+		containerName := *c.Name
 		if c.LogConfiguration == nil {
 			continue
 		}
@@ -142,9 +158,36 @@ func (t *Tracer) traceLogs(task *ecs.Task) error {
 		opt := c.LogConfiguration.Options
 		logGroup := *opt["awslogs-group"]
 		logStream := *opt["awslogs-stream-prefix"] + "/" + *c.Name + "/" + taskID(task)
-		t.followLogs(*c.Name, logGroup, logStream, task.CreatedAt, task.StoppingAt)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			t.followLogs(containerName, logGroup, logStream, task.CreatedAt, task.StoppingAt)
+		}()
 	}
+	for _, c := range task.Containers {
+		containerName := *c.Name
+		msg := fmt.Sprintf(*c.LastStatus)
+		if c.ExitCode != nil {
+			msg += fmt.Sprintf(" (exit code: %d)", *c.ExitCode)
+		}
+		if c.Reason != nil {
+			msg += fmt.Sprintf(" (reason: %s)", *c.Reason)
+		}
+		var ts *time.Time
+		if aws.StringValue(c.LastStatus) == "RUNNING" {
+			ts = now()
+		} else {
+			ts = task.StoppedAt
+		}
+		t.AddEvent(ts, "CONTAINER:"+containerName, msg)
+	}
+	wg.Wait()
 	return nil
+}
+
+func now() *time.Time {
+	now := time.Now()
+	return &now
 }
 
 func taskID(task *ecs.Task) string {
@@ -157,7 +200,7 @@ func (t *Tracer) followLogs(containerName, group, stream string, start, end *tim
 		LogGroupName:  aws.String(group),
 		LogStreamName: aws.String(stream),
 		StartTime:     aws.Int64(timeToInt64msec(*start)),
-		Limit:         aws.Int64(1000),
+		Limit:         aws.Int64(100),
 	})
 	if err != nil {
 		return err
@@ -173,7 +216,7 @@ func (t *Tracer) followLogs(containerName, group, stream string, start, end *tim
 	res, err = t.logs.GetLogEventsWithContext(t.ctx, &cloudwatchlogs.GetLogEventsInput{
 		LogGroupName:  aws.String(group),
 		LogStreamName: aws.String(stream),
-		StartTime:     aws.Int64(timeToInt64msec(*end) - 300*1000),
+		StartTime:     aws.Int64(timeToInt64msec(*end) - 300*1000), // 5 minutes
 		Limit:         aws.Int64(1000),
 	})
 	if err != nil {
