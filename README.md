@@ -12,11 +12,20 @@ $ brew install fujiwara/tap/tracer
 
 [Binary Releases](https://github.com/fujiwara/tracer/releases)
 
+## Usage
+
+```
+usage: tracer <cluster> <task-id>
+```
+
+Environment variable `AWS_REGION` is required.
+
 ## Example
 
 Run a task successfully and shutdown.
 
-```
+```console
+$ tracer default 9f654c76cde14c7c85cf54dce087658a
 2021-11-29T10:42:33.521+09:00	TASK	Created
 2021-11-29T10:42:37.103+09:00	TASK	Connected
 2021-11-29T10:42:48.298+09:00	TASK	Pull started
