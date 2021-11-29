@@ -4,7 +4,15 @@ tracer is a tracing tool for Amazon ECS tasks.
 
 tracer shows events and logs of the tasks order by timestamp.
 
-### example
+## Install
+
+```console
+$ brew install fujiwara/tap/tracer
+```
+
+[Binary Releases](https://github.com/fujiwara/tracer/releases)
+
+## Example
 
 Run a task successfully and shutdown.
 
