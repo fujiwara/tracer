@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
@@ -19,14 +21,18 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	t, err := tracer.New(ctx, sess)
+	t, err := tracer.NewWithSession(ctx, sess)
 	if err != nil {
 		panic(err)
 	}
-	if len(os.Args) < 2 {
+	flag.DurationVar(&t.Duration, "duration", time.Minute, "fetch logs duration from created / before stopping")
+	flag.Parse()
+
+	args := flag.Args()
+	if len(args) < 2 {
 		usage()
 	}
-	if err := t.Run(os.Args[1], os.Args[2]); err != nil {
+	if err := t.Run(args[0], args[1]); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}

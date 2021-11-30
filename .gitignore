@@ -13,5 +13,6 @@
 
 *~
 .envrc
-cmd/lambroll/lambroll
+cmd/tracer/tracer
 dist/
+tracer
