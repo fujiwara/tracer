@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"sort"
 	"strings"
@@ -237,7 +236,6 @@ func (t *Tracer) fetchLogs(containerName, group, stream string, from, to *time.T
 			in.NextToken = nextToken
 			in.StartFromHead = nil
 		}
-		log.Printf("fetching logs %s", in.GoString())
 		res, err := t.logs.GetLogEventsWithContext(t.ctx, in)
 		if err != nil {
 			return err
