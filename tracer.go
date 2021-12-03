@@ -362,7 +362,6 @@ func taskToColumns(task *ecs.Task) []string {
 	return []string{
 		arnToName(*task.TaskArn),
 		arnToName(*task.TaskDefinitionArn),
-		arnToName(aws.StringValue(task.ContainerInstanceArn)),
 		aws.StringValue(task.LastStatus),
 		aws.StringValue(task.DesiredStatus),
 		task.CreatedAt.In(time.Local).Format(time.RFC3339),
