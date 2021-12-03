@@ -29,8 +29,11 @@ func main() {
 	flag.Parse()
 
 	args := flag.Args()
-	if len(args) < 2 {
+	if len(args) < 1 {
 		usage()
+	}
+	if len(args) == 1 {
+		args = append(args, "")
 	}
 	if err := t.Run(args[0], args[1]); err != nil {
 		fmt.Fprintln(os.Stderr, err)

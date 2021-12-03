@@ -30,6 +30,7 @@ type Tracer struct {
 	timeline *Timeline
 	Duration time.Duration
 
+	now       time.Time
 	headBegin time.Time
 	headEnd   time.Time
 	tailBegin time.Time
@@ -111,6 +112,12 @@ func newEvent(ts *time.Time, src, msg string) *TimeLineEvent {
 }
 
 func (t *Tracer) Run(cluster string, taskID string) error {
+	t.now = time.Now()
+
+	if taskID == "" {
+		return t.listAllTasks(cluster)
+	}
+
 	task, err := t.traceTask(cluster, taskID)
 	if err != nil {
 		return err
@@ -135,14 +142,7 @@ func (t *Tracer) traceTask(cluster string, taskID string) (*ecs.Task, error) {
 	}
 	task := res.Tasks[0]
 
-	t.headBegin = task.CreatedAt.Add(-t.Duration)
-	t.headEnd = task.CreatedAt.Add(t.Duration)
-	if task.StoppingAt != nil {
-		t.tailBegin = task.StoppingAt.Add(-t.Duration)
-	} else {
-		t.tailBegin = time.Now().Add(-t.Duration)
-	}
-	t.tailEnd = time.Now()
+	t.setBoundaries(task)
 
 	taskGroup := strings.SplitN(aws.StringValue(task.Group), ":", 2)
 	if len(taskGroup) == 2 && taskGroup[0] == "service" {
@@ -175,7 +175,7 @@ func (t *Tracer) traceTask(cluster string, taskID string) (*ecs.Task, error) {
 		}
 		var ts *time.Time
 		if aws.StringValue(c.LastStatus) == "RUNNING" {
-			ts = now()
+			ts = &t.now
 		} else {
 			ts = task.StoppedAt
 		}
@@ -216,11 +216,6 @@ func (t *Tracer) traceLogs(task *ecs.Task) error {
 	}
 	wg.Wait()
 	return nil
-}
-
-func now() *time.Time {
-	now := time.Now()
-	return &now
 }
 
 func taskID(task *ecs.Task) string {
@@ -290,10 +285,88 @@ func (t *Tracer) fetchLogs(containerName, group, stream string, from, to *time.T
 	return nil
 }
 
+func (t *Tracer) listAllTasks(cluster string) error {
+	for _, s := range []string{"RUNNING", "PENDING", "STOPPED"} {
+		err := t.listTasks(cluster, s)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (t *Tracer) listTasks(cluster, status string) error {
+	var nextToken *string
+	for {
+		listRes, err := t.ecs.ListTasksWithContext(t.ctx, &ecs.ListTasksInput{
+			Cluster:       &cluster,
+			DesiredStatus: aws.String(status),
+			NextToken:     nextToken,
+		})
+		if err != nil {
+			return errors.Wrap(err, "failed to list tasks")
+		}
+		if len(listRes.TaskArns) == 0 {
+			break
+		}
+		res, err := t.ecs.DescribeTasksWithContext(t.ctx, &ecs.DescribeTasksInput{
+			Cluster: &cluster,
+			Tasks:   listRes.TaskArns,
+		})
+		if err != nil {
+			return errors.Wrap(err, "failed to describe tasks")
+		}
+		for _, task := range res.Tasks {
+			fmt.Println(strings.Join(taskToColumns(task), "\t"))
+		}
+		if nextToken = listRes.NextToken; nextToken == nil {
+			break
+		}
+	}
+	return nil
+}
+
+func (t *Tracer) setBoundaries(task *ecs.Task) {
+	t.headBegin = task.CreatedAt.Add(-t.Duration)
+	if task.StartedAt != nil {
+		t.headEnd = task.StartedAt.Add(t.Duration)
+	} else {
+		t.headEnd = task.CreatedAt.Add(t.Duration)
+	}
+
+	if task.StoppingAt != nil {
+		t.tailBegin = task.StoppingAt.Add(-t.Duration)
+	} else {
+		t.tailBegin = t.now.Add(-t.Duration)
+	}
+	if task.StoppedAt != nil {
+		t.tailEnd = task.StoppedAt.Add(t.Duration)
+	} else {
+		t.tailEnd = t.now
+	}
+}
+
 func msecToTime(i int64) time.Time {
 	return epochBase.Add(time.Duration(i) * time.Millisecond)
 }
 
 func timeToInt64msec(t time.Time) int64 {
 	return int64(t.Sub(epochBase) / time.Millisecond)
+}
+
+func arnToName(arn string) string {
+	return arn[strings.LastIndex(arn, "/")+1:]
+}
+
+func taskToColumns(task *ecs.Task) []string {
+	return []string{
+		arnToName(*task.TaskArn),
+		arnToName(*task.TaskDefinitionArn),
+		arnToName(aws.StringValue(task.ContainerInstanceArn)),
+		aws.StringValue(task.LastStatus),
+		aws.StringValue(task.DesiredStatus),
+		task.CreatedAt.In(time.Local).Format(time.RFC3339),
+		aws.StringValue(task.Group),
+		aws.StringValue(task.LaunchType),
+	}
 }
