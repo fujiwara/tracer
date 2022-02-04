@@ -114,6 +114,10 @@ func newEvent(ts *time.Time, src, msg string) *TimeLineEvent {
 func (t *Tracer) Run(cluster string, taskID string) error {
 	t.now = time.Now()
 
+	if cluster == "" {
+		return t.listClusters()
+	}
+
 	if taskID == "" {
 		return t.listAllTasks(cluster)
 	}
@@ -292,6 +296,20 @@ func (t *Tracer) listAllTasks(cluster string) error {
 			return err
 		}
 	}
+	return nil
+}
+
+func (t *Tracer) listClusters() error {
+	res, err := t.ecs.ListClusters(&ecs.ListClustersInput{})
+	if err != nil {
+		return err
+	}
+	clusters := make([]string, 0, len(res.ClusterArns))
+	for _, c := range res.ClusterArns {
+		clusters = append(clusters, arnToName(aws.StringValue(c)))
+	}
+	sort.Strings(clusters)
+	fmt.Println(strings.Join(clusters, "\n"))
 	return nil
 }
 

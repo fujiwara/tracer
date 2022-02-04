@@ -29,10 +29,10 @@ func main() {
 	flag.Parse()
 
 	args := flag.Args()
-	if len(args) < 1 {
-		usage()
-	}
-	if len(args) == 1 {
+	switch len(args) {
+	case 0:
+		args = []string{"", ""}
+	case 1:
 		args = append(args, "")
 	}
 	if err := t.Run(args[0], args[1]); err != nil {
