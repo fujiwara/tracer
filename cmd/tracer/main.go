@@ -5,12 +5,24 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
+	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/fujiwara/tracer"
 )
+
+func init() {
+	flag.Usage = func() {
+		w := flag.CommandLine.Output()
+		fmt.Fprintf(w, "Usage of %s:\n", os.Args[0])
+		fmt.Fprintln(w, "tracer [options] [cluster] [task-id]")
+		fmt.Fprintln(w, "")
+		flag.PrintDefaults()
+	}
+}
 
 func main() {
 	ctx := context.Background()
@@ -26,8 +38,13 @@ func main() {
 		panic(err)
 	}
 	flag.DurationVar(&t.Duration, "duration", time.Minute, "fetch logs duration from created / before stopping")
+	flag.VisitAll(envToFlag)
 	flag.Parse()
 
+	if onLambda() {
+		lambda.Start(t.LambdaHandler)
+		return
+	}
 	args := flag.Args()
 	switch len(args) {
 	case 0:
@@ -41,7 +58,14 @@ func main() {
 	}
 }
 
-func usage() {
-	fmt.Fprintln(os.Stderr, "usage: tracer <cluster> <task-id>")
-	os.Exit(1)
+func onLambda() bool {
+	return strings.HasPrefix(os.Getenv("AWS_EXECUTE_ENV"), "AWS_Lambda") ||
+		os.Getenv("AWS_LAMBDA_RUNTIME_API") != ""
+}
+
+func envToFlag(f *flag.Flag) {
+	name := strings.ToUpper(strings.Replace(f.Name, "-", "_", -1))
+	if s, ok := os.LookupEnv("TRACER_" + name); ok {
+		f.Value.Set(s)
+	}
 }
