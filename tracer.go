@@ -29,6 +29,7 @@ type Tracer struct {
 	logs     *cloudwatchlogs.CloudWatchLogs
 	timeline *Timeline
 	Duration time.Duration
+	w        io.Writer
 
 	now       time.Time
 	headBegin time.Time
@@ -99,6 +100,7 @@ func New(ctx context.Context, ecsSv *ecs.ECS, logsSv *cloudwatchlogs.CloudWatchL
 		timeline: &Timeline{
 			seen: make(map[string]bool),
 		},
+		w:        os.Stdout,
 		Duration: time.Minute,
 	}, nil
 }
@@ -129,7 +131,7 @@ func (t *Tracer) Run(cluster string, taskID string) error {
 	if err := t.traceLogs(task); err != nil {
 		return err
 	}
-	t.timeline.Print(os.Stdout)
+	t.timeline.Print(t.w)
 	return nil
 }
 
