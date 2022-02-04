@@ -14,6 +14,8 @@ $ brew install fujiwara/tap/tracer
 
 ## Usage
 
+### as a CLI
+
 ```
 Usage of tracer:
 tracer [options] [cluster] [task-id]
@@ -27,6 +29,23 @@ Environment variable `AWS_REGION` is required.
 - `tracer` (no arguments) shows list of clusters.
 - `tracer {cluster}` shows all tasks in the clusters.
 - `tracer {cluster} {task-id}` shows a tracing logs of the task.
+
+
+### as a Lambda function
+
+`tracer` also runs on AWS Lambda functions invoked by EventBridge's "ECS Task State Change" events.
+
+1. Put a `tracer` binary into a lambda function's archive(zip) as `bootstrap` named.
+1. Set to call the lambda function by EvnetBridge rule as below.
+   ```
+   {
+     "source": ["aws.ecs"],
+     "detail-type": ["ECS Task State Change"]
+   }
+   ```
+1. The tracer lambda function will put trace logs when ECS tasks STOPPED.
+
+See also example/ directory.
 
 ## Example
 
