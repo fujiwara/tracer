@@ -15,10 +15,18 @@ $ brew install fujiwara/tap/tracer
 ## Usage
 
 ```
-usage: tracer <cluster> <task-id>
+Usage of tracer:
+tracer [options] [cluster] [task-id]
+
+  -duration duration
+        fetch logs duration from created / before stopping (default 1m0s)
 ```
 
 Environment variable `AWS_REGION` is required.
+
+- `tracer` (no arguments) shows list of clusters.
+- `tracer {cluster}` shows all tasks in the clusters.
+- `tracer {cluster} {task-id}` shows a tracing logs of the task.
 
 ## Example
 
@@ -88,7 +96,7 @@ $ tracer default 834a5628bef14f2dbb81c7bc0b272160
 
 Failed to run task. (typo container image URL)
 
-```
+```console
 $ tracer default 9f654c76cde14c7c85cf54dce087658a
 2021-11-27T02:29:15.055+09:00   TASK    Created
 2021-11-27T02:29:33.527+09:00   TASK    Execution stopped
