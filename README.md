@@ -45,7 +45,7 @@ Environment variable `AWS_REGION` is required.
    ```
 1. The tracer lambda function will put trace logs when ECS tasks STOPPED.
 
-See also example/ directory.
+See also lambda directory.
 
 ## Example
 
