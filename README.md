@@ -37,7 +37,7 @@ Environment variable `AWS_REGION` is required.
 
 1. Put a `tracer` binary into a lambda function's archive(zip) as `bootstrap` named.
 1. Set to call the lambda function by EvnetBridge rule as below.
-   ```
+   ```json
    {
      "source": ["aws.ecs"],
      "detail-type": ["ECS Task State Change"]
@@ -45,7 +45,18 @@ Environment variable `AWS_REGION` is required.
    ```
 1. The tracer lambda function will put trace logs when ECS tasks STOPPED.
 
-See also lambda directory.
+See also [lambda directory](lambda/).
+
+### IAM permissions
+
+tracer requires IAM permissions as below.
+
+- `ecs:Describe*`
+- `ecs:List*`
+- `logs:GetLog*`
+
+See also [example.tf](lambda/example.tf).
+
 
 ## Example
 
