@@ -14,6 +14,8 @@ import (
 	"github.com/fujiwara/tracer"
 )
 
+var Version = "current"
+
 func init() {
 	flag.Usage = func() {
 		w := flag.CommandLine.Output()
@@ -37,9 +39,16 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+	var showVersion bool
 	flag.DurationVar(&t.Duration, "duration", time.Minute, "fetch logs duration from created / before stopping")
+	flag.BoolVar(&showVersion, "version", false, "show the version")
 	flag.VisitAll(envToFlag)
 	flag.Parse()
+
+	if showVersion {
+		fmt.Println("tracer", Version)
+		return
+	}
 
 	if onLambda() {
 		lambda.Start(t.LambdaHandler)
