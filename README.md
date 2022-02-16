@@ -22,6 +22,8 @@ tracer [options] [cluster] [task-id]
 
   -duration duration
         fetch logs duration from created / before stopping (default 1m0s)
+  -version
+    	show the version 
 ```
 
 Environment variable `AWS_REGION` is required.
