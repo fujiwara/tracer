@@ -5,11 +5,13 @@ import (
 	"fmt"
 )
 
-func (t *Tracer) LambdaHandler(ctx context.Context, event *ECSTaskEvent) error {
-	fmt.Println(event.String())
-	lastStatus := event.Detail.LastStatus
-	if lastStatus != "STOPPED" {
-		return nil
+func (t *Tracer) LambdaHandlerFunc(opt *RunOption) func(ctx context.Context, event *ECSTaskEvent) error {
+	return func(ctx context.Context, event *ECSTaskEvent) error {
+		fmt.Println(event.String())
+		lastStatus := event.Detail.LastStatus
+		if lastStatus != "STOPPED" {
+			return nil
+		}
+		return t.Run(event.Detail.ClusterArn, event.Detail.TaskArn, opt)
 	}
-	return t.Run(event.Detail.ClusterArn, event.Detail.TaskArn)
 }

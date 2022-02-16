@@ -1,6 +1,7 @@
 package tracer
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -14,10 +15,15 @@ import (
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/cloudwatchlogs"
 	"github.com/aws/aws-sdk-go/service/ecs"
+	"github.com/aws/aws-sdk-go/service/sns"
 	"github.com/pkg/errors"
 )
 
-const timeFormat = "2006-01-02T15:04:05.000Z07:00"
+const (
+	snsMaxPayloadSize = 256 * 1024
+)
+
+var TimeFormat = "2006-01-02T15:04:05.000Z07:00"
 
 var epochBase = time.Unix(0, 0)
 
@@ -27,15 +33,17 @@ type Tracer struct {
 	ctx      context.Context
 	ecs      *ecs.ECS
 	logs     *cloudwatchlogs.CloudWatchLogs
+	sns      *sns.SNS
 	timeline *Timeline
-	Duration time.Duration
-	w        io.Writer
+	buf      *bytes.Buffer
 
 	now       time.Time
 	headBegin time.Time
 	headEnd   time.Time
 	tailBegin time.Time
 	tailEnd   time.Time
+
+	option *RunOption
 }
 
 func (t *Tracer) AddEvent(ts *time.Time, source, message string) {
@@ -85,23 +93,23 @@ type TimeLineEvent struct {
 
 func (e *TimeLineEvent) String() string {
 	ts := e.Timestamp.In(time.Local)
-	return fmt.Sprintf("%s\t%s\t%s\n", ts.Format(timeFormat), e.Source, e.Message)
+	return fmt.Sprintf("%s\t%s\t%s\n", ts.Format(TimeFormat), e.Source, e.Message)
+}
+
+func New(ctx context.Context) (*Tracer, error) {
+	return NewWithSession(ctx, session.Must(session.NewSession()))
 }
 
 func NewWithSession(ctx context.Context, sess *session.Session) (*Tracer, error) {
-	return New(ctx, ecs.New(sess), cloudwatchlogs.New(sess))
-}
-
-func New(ctx context.Context, ecsSv *ecs.ECS, logsSv *cloudwatchlogs.CloudWatchLogs) (*Tracer, error) {
 	return &Tracer{
 		ctx:  ctx,
-		ecs:  ecsSv,
-		logs: logsSv,
+		ecs:  ecs.New(sess),
+		logs: cloudwatchlogs.New(sess),
+		sns:  sns.New(sess),
 		timeline: &Timeline{
 			seen: make(map[string]bool),
 		},
-		w:        os.Stdout,
-		Duration: time.Minute,
+		buf: new(bytes.Buffer),
 	}, nil
 }
 
@@ -113,8 +121,17 @@ func newEvent(ts *time.Time, src, msg string) *TimeLineEvent {
 	}
 }
 
-func (t *Tracer) Run(cluster string, taskID string) error {
+type RunOption struct {
+	Stdout      bool
+	SNSTopicArn string
+	Duration    time.Duration
+}
+
+func (t *Tracer) Run(cluster string, taskID string, opt *RunOption) error {
 	t.now = time.Now()
+	t.option = opt
+
+	defer func() { t.report(cluster, taskID) }()
 
 	if cluster == "" {
 		return t.listClusters()
@@ -131,8 +148,56 @@ func (t *Tracer) Run(cluster string, taskID string) error {
 	if err := t.traceLogs(task); err != nil {
 		return err
 	}
-	t.timeline.Print(t.w)
+
 	return nil
+}
+
+func (t *Tracer) report(cluster, taskID string) {
+	opt := t.option
+	if opt.Stdout {
+		fmt.Fprintln(os.Stdout, subject(cluster, taskID))
+		if _, err := t.WriteTo(os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+		}
+	}
+	if opt.SNSTopicArn != "" {
+		if err := t.Publish(opt.SNSTopicArn, cluster, taskID); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+		}
+	}
+}
+
+func (t *Tracer) WriteTo(w io.Writer) (int64, error) {
+	n, err := io.WriteString(w, t.buf.String())
+	return int64(n), err
+}
+
+func subject(cluster, taskID string) string {
+	s := "Tracer:"
+	if taskID != "" {
+		s += " " + taskID
+	} else if cluster != "" {
+		s += " tasks"
+	}
+	if cluster != "" {
+		s += " on " + cluster
+	} else {
+		s += " clusters"
+	}
+	return s
+}
+
+func (t *Tracer) Publish(topicArn, cluster, taskID string) error {
+	msg := t.buf.String()
+	if len(msg) >= snsMaxPayloadSize {
+		msg = msg[:snsMaxPayloadSize]
+	}
+	_, err := t.sns.PublishWithContext(t.ctx, &sns.PublishInput{
+		Message:  &msg,
+		Subject:  aws.String(subject(cluster, taskID)),
+		TopicArn: &topicArn,
+	})
+	return err
 }
 
 func (t *Tracer) traceTask(cluster string, taskID string) (*ecs.Task, error) {
@@ -192,6 +257,8 @@ func (t *Tracer) traceTask(cluster string, taskID string) (*ecs.Task, error) {
 }
 
 func (t *Tracer) traceLogs(task *ecs.Task) error {
+	defer t.timeline.Print(t.buf)
+
 	res, err := t.ecs.DescribeTaskDefinitionWithContext(t.ctx, &ecs.DescribeTaskDefinitionInput{
 		TaskDefinition: task.TaskDefinitionArn,
 	})
@@ -311,7 +378,10 @@ func (t *Tracer) listClusters() error {
 		clusters = append(clusters, arnToName(aws.StringValue(c)))
 	}
 	sort.Strings(clusters)
-	fmt.Println(strings.Join(clusters, "\n"))
+	for _, c := range clusters {
+		t.buf.WriteString(c)
+		t.buf.WriteByte('\n')
+	}
 	return nil
 }
 
@@ -337,7 +407,8 @@ func (t *Tracer) listTasks(cluster, status string) error {
 			return errors.Wrap(err, "failed to describe tasks")
 		}
 		for _, task := range res.Tasks {
-			fmt.Println(strings.Join(taskToColumns(task), "\t"))
+			t.buf.WriteString(strings.Join(taskToColumns(task), "\t"))
+			t.buf.WriteRune('\n')
 		}
 		if nextToken = listRes.NextToken; nextToken == nil {
 			break
@@ -347,20 +418,22 @@ func (t *Tracer) listTasks(cluster, status string) error {
 }
 
 func (t *Tracer) setBoundaries(task *ecs.Task) {
-	t.headBegin = task.CreatedAt.Add(-t.Duration)
+	d := t.option.Duration
+
+	t.headBegin = task.CreatedAt.Add(-d)
 	if task.StartedAt != nil {
-		t.headEnd = task.StartedAt.Add(t.Duration)
+		t.headEnd = task.StartedAt.Add(d)
 	} else {
-		t.headEnd = task.CreatedAt.Add(t.Duration)
+		t.headEnd = task.CreatedAt.Add(d)
 	}
 
 	if task.StoppingAt != nil {
-		t.tailBegin = task.StoppingAt.Add(-t.Duration)
+		t.tailBegin = task.StoppingAt.Add(-d)
 	} else {
-		t.tailBegin = t.now.Add(-t.Duration)
+		t.tailBegin = t.now.Add(-d)
 	}
 	if task.StoppedAt != nil {
-		t.tailEnd = task.StoppedAt.Add(t.Duration)
+		t.tailEnd = task.StoppedAt.Add(d)
 	} else {
 		t.tailEnd = t.now
 	}
