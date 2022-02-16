@@ -40,8 +40,11 @@ func main() {
 		panic(err)
 	}
 	var showVersion bool
-	flag.DurationVar(&t.Duration, "duration", time.Minute, "fetch logs duration from created / before stopping")
+	opt := tracer.RunOption{}
+	flag.DurationVar(&opt.Duration, "duration", time.Minute, "fetch logs duration from created / before stopping")
 	flag.BoolVar(&showVersion, "version", false, "show the version")
+	flag.BoolVar(&opt.Stdout, "stdout", true, "output to stdout")
+	flag.StringVar(&opt.SNSTopicArn, "sns", "", "SNS topic ARN")
 	flag.VisitAll(envToFlag)
 	flag.Parse()
 
@@ -51,17 +54,14 @@ func main() {
 	}
 
 	if onLambda() {
-		lambda.Start(t.LambdaHandler)
+		lambda.Start(t.LambdaHandlerFunc(&opt))
 		return
 	}
-	args := flag.Args()
-	switch len(args) {
-	case 0:
-		args = []string{"", ""}
-	case 1:
-		args = append(args, "")
-	}
-	if err := t.Run(args[0], args[1]); err != nil {
+
+	args := make([]string, 2)
+	copy(args, flag.Args())
+
+	if err := t.Run(args[0], args[1], &opt); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
