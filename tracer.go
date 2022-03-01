@@ -245,10 +245,11 @@ func (t *Tracer) traceTask(cluster string, taskID string) (*ecs.Task, error) {
 			msg += fmt.Sprintf(" (reason: %s)", *c.Reason)
 		}
 		var ts *time.Time
-		if aws.StringValue(c.LastStatus) == "RUNNING" {
-			ts = &t.now
-		} else {
+		switch aws.StringValue(c.LastStatus) {
+		case "STOPPED":
 			ts = task.StoppedAt
+		default:
+			ts = &t.now
 		}
 		t.AddEvent(ts, "CONTAINER:"+containerName, msg)
 	}
