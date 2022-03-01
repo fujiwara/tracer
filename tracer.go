@@ -237,22 +237,17 @@ func (t *Tracer) traceTask(cluster string, taskID string) (*ecs.Task, error) {
 
 	for _, c := range task.Containers {
 		containerName := *c.Name
-		msg := fmt.Sprintf(*c.LastStatus)
+		msg := fmt.Sprintf("LastStatus:%s HealthStatus:%s", *c.LastStatus, *c.HealthStatus)
 		if c.ExitCode != nil {
 			msg += fmt.Sprintf(" (exit code: %d)", *c.ExitCode)
 		}
 		if c.Reason != nil {
 			msg += fmt.Sprintf(" (reason: %s)", *c.Reason)
 		}
-		var ts *time.Time
-		switch aws.StringValue(c.LastStatus) {
-		case "STOPPED":
-			ts = task.StoppedAt
-		default:
-			ts = &t.now
-		}
-		t.AddEvent(ts, "CONTAINER:"+containerName, msg)
+		t.AddEvent(&t.now, "CONTAINER:"+containerName, msg)
 	}
+
+	t.AddEvent(&t.now, "TASK", "LastStatus:"+aws.StringValue(task.LastStatus))
 
 	return task, nil
 }
