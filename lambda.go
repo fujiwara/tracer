@@ -3,6 +3,9 @@ package tracer
 import (
 	"context"
 	"fmt"
+	"strings"
+
+	"github.com/aws/aws-sdk-go/aws/arn"
 )
 
 func (t *Tracer) LambdaHandlerFunc(opt *RunOption) func(ctx context.Context, event *ECSTaskEvent) error {
@@ -12,6 +15,31 @@ func (t *Tracer) LambdaHandlerFunc(opt *RunOption) func(ctx context.Context, eve
 		if lastStatus != "STOPPED" {
 			return nil
 		}
-		return t.Run(event.Detail.ClusterArn, event.Detail.TaskArn, opt)
+		cluster := extractClusterName(event.Detail.ClusterArn)
+		return t.Run(cluster, extractTaskID(cluster, event.Detail.TaskArn), opt)
 	}
+}
+
+func extractClusterName(clusterArn string) string {
+	parsed, err := arn.Parse(clusterArn)
+	if err != nil {
+		return clusterArn
+	}
+	prefix := "cluster/"
+	if parsed.Service == "ecs" && strings.HasPrefix(parsed.Resource, prefix) {
+		return strings.TrimPrefix(parsed.Resource, prefix)
+	}
+	return clusterArn
+}
+
+func extractTaskID(cluster, taskArn string) string {
+	parsed, err := arn.Parse(taskArn)
+	if err != nil {
+		return taskArn
+	}
+	prefix := "task/" + cluster + "/"
+	if parsed.Service == "ecs" && strings.HasPrefix(parsed.Resource, prefix) {
+		return strings.TrimPrefix(parsed.Resource, prefix)
+	}
+	return taskArn
 }
