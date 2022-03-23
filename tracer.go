@@ -187,14 +187,24 @@ func subject(cluster, taskID string) string {
 	return s
 }
 
+const (
+	snsSubjectLimitLength = 100
+	ellipsisString        = "..."
+)
+
 func (t *Tracer) Publish(topicArn, cluster, taskID string) error {
 	msg := t.buf.String()
 	if len(msg) >= snsMaxPayloadSize {
 		msg = msg[:snsMaxPayloadSize]
 	}
+
+	s := subject(cluster, taskID)
+	if len(s) > snsSubjectLimitLength {
+		s = s[0:snsSubjectLimitLength-len(ellipsisString)] + ellipsisString
+	}
 	_, err := t.sns.PublishWithContext(t.ctx, &sns.PublishInput{
 		Message:  &msg,
-		Subject:  aws.String(subject(cluster, taskID)),
+		Subject:  aws.String(s),
 		TopicArn: &topicArn,
 	})
 	return err
