@@ -35,7 +35,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	t, err := tracer.NewWithSession(ctx, sess)
+	t, err := tracer.NewWithSession(sess)
 	if err != nil {
 		panic(err)
 	}
@@ -61,7 +61,7 @@ func main() {
 	args := make([]string, 2)
 	copy(args, flag.Args())
 
-	if err := t.Run(args[0], args[1], &opt); err != nil {
+	if err := t.Run(ctx, args[0], args[1], &opt); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
