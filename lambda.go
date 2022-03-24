@@ -16,7 +16,7 @@ func (t *Tracer) LambdaHandlerFunc(opt *RunOption) func(ctx context.Context, eve
 			return nil
 		}
 		cluster := extractClusterName(event.Detail.ClusterArn)
-		return t.Run(cluster, extractTaskID(cluster, event.Detail.TaskArn), opt)
+		return t.Run(ctx, cluster, extractTaskID(cluster, event.Detail.TaskArn), opt)
 	}
 }
 

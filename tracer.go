@@ -30,7 +30,6 @@ var epochBase = time.Unix(0, 0)
 var MaxFetchLogs = 100
 
 type Tracer struct {
-	ctx      context.Context
 	ecs      *ecs.ECS
 	logs     *cloudwatchlogs.CloudWatchLogs
 	sns      *sns.SNS
@@ -96,13 +95,12 @@ func (e *TimeLineEvent) String() string {
 	return fmt.Sprintf("%s\t%s\t%s\n", ts.Format(TimeFormat), e.Source, e.Message)
 }
 
-func New(ctx context.Context) (*Tracer, error) {
-	return NewWithSession(ctx, session.Must(session.NewSession()))
+func New() (*Tracer, error) {
+	return NewWithSession(session.Must(session.NewSession()))
 }
 
-func NewWithSession(ctx context.Context, sess *session.Session) (*Tracer, error) {
+func NewWithSession(sess *session.Session) (*Tracer, error) {
 	return &Tracer{
-		ctx:  ctx,
 		ecs:  ecs.New(sess),
 		logs: cloudwatchlogs.New(sess),
 		sns:  sns.New(sess),
@@ -127,32 +125,32 @@ type RunOption struct {
 	Duration    time.Duration
 }
 
-func (t *Tracer) Run(cluster string, taskID string, opt *RunOption) error {
+func (t *Tracer) Run(ctx context.Context, cluster string, taskID string, opt *RunOption) error {
 	t.now = time.Now()
 	t.option = opt
 
-	defer func() { t.report(cluster, taskID) }()
+	defer func() { t.report(ctx, cluster, taskID) }()
 
 	if cluster == "" {
-		return t.listClusters()
+		return t.listClusters(ctx)
 	}
 
 	if taskID == "" {
-		return t.listAllTasks(cluster)
+		return t.listAllTasks(ctx, cluster)
 	}
 
-	task, err := t.traceTask(cluster, taskID)
+	task, err := t.traceTask(ctx, cluster, taskID)
 	if err != nil {
 		return err
 	}
-	if err := t.traceLogs(task); err != nil {
+	if err := t.traceLogs(ctx, task); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func (t *Tracer) report(cluster, taskID string) {
+func (t *Tracer) report(ctx context.Context, cluster, taskID string) {
 	opt := t.option
 	if opt.Stdout {
 		fmt.Fprintln(os.Stdout, subject(cluster, taskID))
@@ -161,7 +159,7 @@ func (t *Tracer) report(cluster, taskID string) {
 		}
 	}
 	if opt.SNSTopicArn != "" {
-		if err := t.Publish(opt.SNSTopicArn, cluster, taskID); err != nil {
+		if err := t.Publish(ctx, opt.SNSTopicArn, cluster, taskID); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 		}
 	}
@@ -192,7 +190,7 @@ const (
 	ellipsisString        = "..."
 )
 
-func (t *Tracer) Publish(topicArn, cluster, taskID string) error {
+func (t *Tracer) Publish(ctx context.Context, topicArn, cluster, taskID string) error {
 	msg := t.buf.String()
 	if len(msg) >= snsMaxPayloadSize {
 		msg = msg[:snsMaxPayloadSize]
@@ -202,7 +200,7 @@ func (t *Tracer) Publish(topicArn, cluster, taskID string) error {
 	if len(s) > snsSubjectLimitLength {
 		s = s[0:snsSubjectLimitLength-len(ellipsisString)] + ellipsisString
 	}
-	_, err := t.sns.PublishWithContext(t.ctx, &sns.PublishInput{
+	_, err := t.sns.PublishWithContext(ctx, &sns.PublishInput{
 		Message:  &msg,
 		Subject:  aws.String(s),
 		TopicArn: &topicArn,
@@ -210,8 +208,8 @@ func (t *Tracer) Publish(topicArn, cluster, taskID string) error {
 	return err
 }
 
-func (t *Tracer) traceTask(cluster string, taskID string) (*ecs.Task, error) {
-	res, err := t.ecs.DescribeTasksWithContext(t.ctx, &ecs.DescribeTasksInput{
+func (t *Tracer) traceTask(ctx context.Context, cluster string, taskID string) (*ecs.Task, error) {
+	res, err := t.ecs.DescribeTasksWithContext(ctx, &ecs.DescribeTasksInput{
 		Cluster: &cluster,
 		Tasks:   []*string{&taskID},
 	})
@@ -227,7 +225,7 @@ func (t *Tracer) traceTask(cluster string, taskID string) (*ecs.Task, error) {
 
 	taskGroup := strings.SplitN(aws.StringValue(task.Group), ":", 2)
 	if len(taskGroup) == 2 && taskGroup[0] == "service" {
-		t.fetchServiceEvents(cluster, taskGroup[1])
+		t.fetchServiceEvents(ctx, cluster, taskGroup[1])
 	}
 
 	t.AddEvent(task.CreatedAt, "TASK", "Created")
@@ -262,10 +260,10 @@ func (t *Tracer) traceTask(cluster string, taskID string) (*ecs.Task, error) {
 	return task, nil
 }
 
-func (t *Tracer) traceLogs(task *ecs.Task) error {
+func (t *Tracer) traceLogs(ctx context.Context, task *ecs.Task) error {
 	defer t.timeline.Print(t.buf)
 
-	res, err := t.ecs.DescribeTaskDefinitionWithContext(t.ctx, &ecs.DescribeTaskDefinitionInput{
+	res, err := t.ecs.DescribeTaskDefinitionWithContext(ctx, &ecs.DescribeTaskDefinitionInput{
 		TaskDefinition: task.TaskDefinitionArn,
 	})
 	if err != nil {
@@ -287,10 +285,10 @@ func (t *Tracer) traceLogs(task *ecs.Task) error {
 		go func() {
 			defer wg.Done()
 			// head of logs
-			t.fetchLogs(containerName, logGroup, logStream, &t.headBegin, &t.headEnd)
+			t.fetchLogs(ctx, containerName, logGroup, logStream, &t.headBegin, &t.headEnd)
 
 			// tail of logs
-			t.fetchLogs(containerName, logGroup, logStream, &t.tailBegin, nil)
+			t.fetchLogs(ctx, containerName, logGroup, logStream, &t.tailBegin, nil)
 		}()
 	}
 	wg.Wait()
@@ -302,8 +300,8 @@ func taskID(task *ecs.Task) string {
 	return an[strings.LastIndex(an, "/")+1:]
 }
 
-func (t *Tracer) fetchServiceEvents(cluster, service string) error {
-	res, err := t.ecs.DescribeServicesWithContext(t.ctx, &ecs.DescribeServicesInput{
+func (t *Tracer) fetchServiceEvents(ctx context.Context, cluster, service string) error {
+	res, err := t.ecs.DescribeServicesWithContext(ctx, &ecs.DescribeServicesInput{
 		Cluster:  &cluster,
 		Services: []*string{&service},
 	})
@@ -322,7 +320,7 @@ func (t *Tracer) fetchServiceEvents(cluster, service string) error {
 	return nil
 }
 
-func (t *Tracer) fetchLogs(containerName, group, stream string, from, to *time.Time) error {
+func (t *Tracer) fetchLogs(ctx context.Context, containerName, group, stream string, from, to *time.Time) error {
 	var nextToken *string
 	in := &cloudwatchlogs.GetLogEventsInput{
 		LogGroupName:  aws.String(group),
@@ -344,7 +342,7 @@ func (t *Tracer) fetchLogs(containerName, group, stream string, from, to *time.T
 			in.NextToken = nextToken
 			in.StartFromHead = nil
 		}
-		res, err := t.logs.GetLogEventsWithContext(t.ctx, in)
+		res, err := t.logs.GetLogEventsWithContext(ctx, in)
 		if err != nil {
 			return err
 		}
@@ -364,9 +362,9 @@ func (t *Tracer) fetchLogs(containerName, group, stream string, from, to *time.T
 	return nil
 }
 
-func (t *Tracer) listAllTasks(cluster string) error {
+func (t *Tracer) listAllTasks(ctx context.Context, cluster string) error {
 	for _, s := range []string{"RUNNING", "PENDING", "STOPPED"} {
-		err := t.listTasks(cluster, s)
+		err := t.listTasks(ctx, cluster, s)
 		if err != nil {
 			return err
 		}
@@ -374,7 +372,7 @@ func (t *Tracer) listAllTasks(cluster string) error {
 	return nil
 }
 
-func (t *Tracer) listClusters() error {
+func (t *Tracer) listClusters(ctx context.Context) error {
 	res, err := t.ecs.ListClusters(&ecs.ListClustersInput{})
 	if err != nil {
 		return err
@@ -391,10 +389,10 @@ func (t *Tracer) listClusters() error {
 	return nil
 }
 
-func (t *Tracer) listTasks(cluster, status string) error {
+func (t *Tracer) listTasks(ctx context.Context, cluster, status string) error {
 	var nextToken *string
 	for {
-		listRes, err := t.ecs.ListTasksWithContext(t.ctx, &ecs.ListTasksInput{
+		listRes, err := t.ecs.ListTasksWithContext(ctx, &ecs.ListTasksInput{
 			Cluster:       &cluster,
 			DesiredStatus: aws.String(status),
 			NextToken:     nextToken,
@@ -405,7 +403,7 @@ func (t *Tracer) listTasks(cluster, status string) error {
 		if len(listRes.TaskArns) == 0 {
 			break
 		}
-		res, err := t.ecs.DescribeTasksWithContext(t.ctx, &ecs.DescribeTasksInput{
+		res, err := t.ecs.DescribeTasksWithContext(ctx, &ecs.DescribeTasksInput{
 			Cluster: &cluster,
 			Tasks:   listRes.TaskArns,
 		})
