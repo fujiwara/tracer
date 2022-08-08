@@ -17,7 +17,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ecs"
 	ecsTypes "github.com/aws/aws-sdk-go-v2/service/ecs/types"
 	"github.com/aws/aws-sdk-go-v2/service/sns"
-	"github.com/pkg/errors"
 )
 
 const (
@@ -220,10 +219,10 @@ func (t *Tracer) traceTask(ctx context.Context, cluster string, taskID string) (
 		Tasks:   []string{taskID},
 	})
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to describe tasks")
+		return nil, fmt.Errorf("failed to describe tasks: %w", err)
 	}
 	if len(res.Tasks) == 0 {
-		return nil, errors.New("no tasks found")
+		return nil, fmt.Errorf("no tasks found: %w", err)
 	}
 	task := res.Tasks[0]
 
@@ -271,7 +270,7 @@ func (t *Tracer) traceLogs(ctx context.Context, task *ecsTypes.Task) error {
 		TaskDefinition: task.TaskDefinitionArn,
 	})
 	if err != nil {
-		return errors.Wrap(err, "failed to describe task definition")
+		return fmt.Errorf("failed to describe task definition: %w", err)
 	}
 	var wg sync.WaitGroup
 	for _, c := range res.TaskDefinition.ContainerDefinitions {
@@ -310,10 +309,10 @@ func (t *Tracer) fetchServiceEvents(ctx context.Context, cluster, service string
 		Services: []string{service},
 	})
 	if err != nil {
-		return errors.Wrap(err, "failed to describe services")
+		return fmt.Errorf("failed to describe services: %w", err)
 	}
 	if len(res.Services) == 0 {
-		return errors.New("no services found")
+		return fmt.Errorf("no services found: %w", err)
 	}
 	for _, e := range res.Services[0].Events {
 		ts := *e.CreatedAt
@@ -406,7 +405,7 @@ func (t *Tracer) listTasks(ctx context.Context, cluster string, status ecsTypes.
 			NextToken:     nextToken,
 		})
 		if err != nil {
-			return errors.Wrap(err, "failed to list tasks")
+			return fmt.Errorf("failed to list tasks: %w", err)
 		}
 		if len(listRes.TaskArns) == 0 {
 			break
@@ -416,7 +415,7 @@ func (t *Tracer) listTasks(ctx context.Context, cluster string, status ecsTypes.
 			Tasks:   listRes.TaskArns,
 		})
 		if err != nil {
-			return errors.Wrap(err, "failed to describe tasks")
+			return fmt.Errorf("failed to describe tasks: %w", err)
 		}
 		for _, task := range res.Tasks {
 			t.buf.WriteString(strings.Join(taskToColumns(&task), "\t"))

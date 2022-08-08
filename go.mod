@@ -9,7 +9,6 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs v1.15.11
 	github.com/aws/aws-sdk-go-v2/service/ecs v1.18.12
 	github.com/aws/aws-sdk-go-v2/service/sns v1.17.10
-	github.com/pkg/errors v0.9.1
 	github.com/stretchr/testify v1.6.1
 )
 
