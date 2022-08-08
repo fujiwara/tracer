@@ -9,8 +9,7 @@ import (
 	"time"
 
 	"github.com/aws/aws-lambda-go/lambda"
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/fujiwara/tracer"
 )
 
@@ -28,14 +27,13 @@ func init() {
 
 func main() {
 	ctx := context.Background()
-	sess, err := session.NewSessionWithOptions(session.Options{
-		Config:            aws.Config{Region: aws.String(os.Getenv("AWS_REGION"))},
-		SharedConfigState: session.SharedConfigEnable,
-	})
+	cfg, err := config.LoadDefaultConfig(ctx,
+		config.WithRegion(os.Getenv("AWS_REGION")),
+	)
 	if err != nil {
 		panic(err)
 	}
-	t, err := tracer.NewWithSession(sess)
+	t, err := tracer.NewWithConfig(cfg)
 	if err != nil {
 		panic(err)
 	}
