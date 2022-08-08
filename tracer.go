@@ -243,7 +243,7 @@ func (t *Tracer) traceTask(ctx context.Context, cluster string, taskID string) (
 	if task.StoppedReason != nil {
 		t.AddEvent(task.StoppingAt, "TASK", "StoppedReason:"+*task.StoppedReason)
 	}
-	t.AddEvent(task.StoppingAt, "TASK", fmt.Sprintf("StoppedCode:%s", task.StopCode))
+	t.AddEvent(task.StoppingAt, "TASK", "StoppedCode:"+string(task.StopCode))
 	t.AddEvent(task.ExecutionStoppedAt, "TASK", "Execution stopped")
 
 	for _, c := range task.Containers {
