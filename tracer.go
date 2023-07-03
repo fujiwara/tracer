@@ -35,6 +35,7 @@ type Tracer struct {
 	sns      *sns.Client
 	timeline *Timeline
 	buf      *bytes.Buffer
+	w        io.Writer
 
 	now       time.Time
 	headBegin time.Time
@@ -113,6 +114,7 @@ func NewWithConfig(config aws.Config) (*Tracer, error) {
 			seen: make(map[string]bool),
 		},
 		buf: new(bytes.Buffer),
+		w:   os.Stdout,
 	}, nil
 }
 
@@ -128,6 +130,10 @@ type RunOption struct {
 	Stdout      bool
 	SNSTopicArn string
 	Duration    time.Duration
+}
+
+func (t *Tracer) SetOutput(w io.Writer) {
+	t.w = w
 }
 
 func (t *Tracer) Run(ctx context.Context, cluster string, taskID string, opt *RunOption) error {
@@ -158,8 +164,8 @@ func (t *Tracer) Run(ctx context.Context, cluster string, taskID string, opt *Ru
 func (t *Tracer) report(ctx context.Context, cluster, taskID string) {
 	opt := t.option
 	if opt.Stdout {
-		fmt.Fprintln(os.Stdout, subject(cluster, taskID))
-		if _, err := t.WriteTo(os.Stdout); err != nil {
+		fmt.Fprintln(t.w, subject(cluster, taskID))
+		if _, err := t.WriteTo(t.w); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 		}
 	}
