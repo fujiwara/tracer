@@ -443,6 +443,10 @@ func (t *Tracer) setBoundaries(task *ecsTypes.Task) {
 	} else {
 		t.headEnd = task.CreatedAt.Add(d)
 	}
+	// logs are not output before pull stopped
+	if task.PullStoppedAt != nil {
+		t.headEnd = task.PullStoppedAt.Add(d)
+	}
 
 	if task.StoppingAt != nil {
 		t.tailBegin = task.StoppingAt.Add(-d)
