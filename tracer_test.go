@@ -10,7 +10,7 @@ import (
 )
 
 var (
-	testEvents = []tracer.TimeLineEvent{
+	testEvents = []tracer.TimelineEvent{
 		{
 			Timestamp: time.Date(2021, 1, 2, 3, 4, 5, 123_999_000, time.UTC),
 			Message:   "test message 1",
@@ -51,10 +51,10 @@ var (
 `
 )
 
-func TestTimeLineEvent(t *testing.T) {
+func TestTimelineEvent(t *testing.T) {
 	t.Setenv("TZ", "UTC")
 	now := time.Date(2021, 1, 2, 3, 4, 5, 123_999_000, time.UTC)
-	ev := tracer.TimeLineEvent{
+	ev := tracer.TimelineEvent{
 		Timestamp: now,
 		Message:   "test message",
 		Source:    "test_source",
@@ -64,7 +64,7 @@ func TestTimeLineEvent(t *testing.T) {
 	}
 }
 
-func TestTimeLine(t *testing.T) {
+func TestTimeline(t *testing.T) {
 	t.Setenv("TZ", "UTC")
 	tl := tracer.NewTimeline()
 	for _, ev := range testEvents {

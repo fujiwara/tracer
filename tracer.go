@@ -57,12 +57,12 @@ func NewTimeline() *Timeline {
 }
 
 type Timeline struct {
-	events []*TimeLineEvent
+	events []*TimelineEvent
 	seen   map[string]bool
 	mu     sync.Mutex
 }
 
-func (tl *Timeline) Add(event *TimeLineEvent) {
+func (tl *Timeline) Add(event *TimelineEvent) {
 	if event.Timestamp.IsZero() { // ignore zero time event
 		return
 	}
@@ -75,7 +75,7 @@ func (tl *Timeline) Print(w io.Writer) (int, error) {
 	tl.mu.Lock()
 	defer tl.mu.Unlock()
 
-	tls := make([]*TimeLineEvent, 0, len(tl.events))
+	tls := make([]*TimelineEvent, 0, len(tl.events))
 	tls = append(tls, tl.events...)
 	sort.SliceStable(tls, func(i, j int) bool {
 		return tls[i].Timestamp.Before(tls[j].Timestamp)
@@ -95,13 +95,13 @@ func (tl *Timeline) Print(w io.Writer) (int, error) {
 	return n, nil
 }
 
-type TimeLineEvent struct {
+type TimelineEvent struct {
 	Timestamp time.Time
 	Source    string
 	Message   string
 }
 
-func (e *TimeLineEvent) String() string {
+func (e *TimelineEvent) String() string {
 	ts := e.Timestamp.In(time.Local)
 	return fmt.Sprintf("%s\t%s\t%s\n", ts.Format(TimeFormat), e.Source, e.Message)
 }
@@ -126,8 +126,8 @@ func NewWithConfig(config aws.Config) (*Tracer, error) {
 	}, nil
 }
 
-func newEvent(ts time.Time, src, msg string) *TimeLineEvent {
-	return &TimeLineEvent{
+func newEvent(ts time.Time, src, msg string) *TimelineEvent {
+	return &TimelineEvent{
 		Timestamp: ts,
 		Source:    src,
 		Message:   msg,
