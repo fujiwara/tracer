@@ -1,9 +1,9 @@
-package tracer
+package tracer_test
 
 import (
 	"testing"
 
-	"github.com/stretchr/testify/require"
+	"github.com/fujiwara/tracer"
 )
 
 func TestExtractClusterName(t *testing.T) {
@@ -23,8 +23,10 @@ func TestExtractClusterName(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(c.input, func(t *testing.T) {
-			actual := extractClusterName(c.input)
-			require.Equal(t, c.expected, actual)
+			actual := tracer.ExtractClusterName(c.input)
+			if c.expected != actual {
+				t.Errorf("expected: %s, actual: %s", c.expected, actual)
+			}
 		})
 	}
 }
@@ -49,8 +51,10 @@ func TestExtractTaskID(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(c.input, func(t *testing.T) {
-			actual := extractTaskID(c.cluster, c.input)
-			require.Equal(t, c.expected, actual)
+			actual := tracer.ExtractTaskID(c.cluster, c.input)
+			if c.expected != actual {
+				t.Errorf("expected: %s, actual: %s", c.expected, actual)
+			}
 		})
 	}
 }

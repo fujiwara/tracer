@@ -50,6 +50,12 @@ func (t *Tracer) AddEvent(ts *time.Time, source, message string) {
 	t.timeline.Add(newEvent(ts, source, message))
 }
 
+func NewTimeline() *Timeline {
+	return &Timeline{
+		seen: make(map[string]bool),
+	}
+}
+
 type Timeline struct {
 	events []*TimeLineEvent
 	seen   map[string]bool
@@ -107,14 +113,12 @@ func New(ctx context.Context) (*Tracer, error) {
 
 func NewWithConfig(config aws.Config) (*Tracer, error) {
 	return &Tracer{
-		ecs:  ecs.NewFromConfig(config),
-		logs: cloudwatchlogs.NewFromConfig(config),
-		sns:  sns.NewFromConfig(config),
-		timeline: &Timeline{
-			seen: make(map[string]bool),
-		},
-		buf: new(bytes.Buffer),
-		w:   os.Stdout,
+		ecs:      ecs.NewFromConfig(config),
+		logs:     cloudwatchlogs.NewFromConfig(config),
+		sns:      sns.NewFromConfig(config),
+		timeline: NewTimeline(),
+		buf:      new(bytes.Buffer),
+		w:        os.Stdout,
 	}, nil
 }
 
