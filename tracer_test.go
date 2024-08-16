@@ -5,41 +5,43 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/fujiwara/tracer"
 )
-
-func ptr[T any](v T) *T {
-	return &v
-}
 
 var (
 	testEvents = []tracer.TimeLineEvent{
 		{
-			Timestamp: ptr(time.Date(2021, 1, 2, 3, 4, 5, 123_999_000, time.UTC)),
+			Timestamp: time.Date(2021, 1, 2, 3, 4, 5, 123_999_000, time.UTC),
 			Message:   "test message 1",
 			Source:    "test_source 1",
 		},
 		{
-			Timestamp: ptr(time.Date(2021, 1, 2, 3, 4, 5, 123_999_999, time.UTC)),
+			Timestamp: time.Date(2021, 1, 2, 3, 4, 5, 123_999_999, time.UTC),
 			Message:   "test message 5",
 			Source:    "test_source 5",
 		},
 		{
-			Timestamp: ptr(time.Date(2021, 1, 2, 3, 4, 6, 123_999_000, time.UTC)),
+			Timestamp: time.Date(2021, 1, 2, 3, 4, 6, 123_999_000, time.UTC),
 			Message:   "test message 2",
 			Source:    "test_source 2",
 		},
 		{
 			// same timestamp to test sort stable
-			Timestamp: ptr(time.Date(2021, 1, 2, 3, 4, 5, 123_999_000, time.UTC)),
+			Timestamp: time.Date(2021, 1, 2, 3, 4, 5, 123_999_000, time.UTC),
 			Message:   "test message 3",
 			Source:    "test_source 3",
 		},
 		{
 			// duplicate event
-			Timestamp: ptr(time.Date(2021, 1, 2, 3, 4, 5, 123_999_000, time.UTC)),
+			Timestamp: time.Date(2021, 1, 2, 3, 4, 5, 123_999_000, time.UTC),
 			Message:   "test message 3",
 			Source:    "test_source 3",
+		},
+		{
+			Timestamp: aws.ToTime(nil),
+			Message:   "test message ignored",
+			Source:    "test_source ignored",
 		},
 	}
 	expectedOutput = `2021-01-02T03:04:05.123Z	test_source 1	test message 1
@@ -53,7 +55,7 @@ func TestTimeLineEvent(t *testing.T) {
 	t.Setenv("TZ", "UTC")
 	now := time.Date(2021, 1, 2, 3, 4, 5, 123_999_000, time.UTC)
 	ev := tracer.TimeLineEvent{
-		Timestamp: &now,
+		Timestamp: now,
 		Message:   "test message",
 		Source:    "test_source",
 	}
@@ -70,7 +72,13 @@ func TestTimeLine(t *testing.T) {
 		tl.Add(&ev)
 	}
 	b := new(strings.Builder)
-	tl.Print(b)
+	n, err := tl.Print(b)
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+	if n != len(expectedOutput) {
+		t.Errorf("unexpected length: %d", n)
+	}
 	if b.String() != expectedOutput {
 		t.Errorf("unexpected output: %s", b.String())
 	}
