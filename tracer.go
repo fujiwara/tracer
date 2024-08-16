@@ -46,52 +46,62 @@ type Tracer struct {
 	option *RunOption
 }
 
-func (t *Tracer) AddEvent(ts *time.Time, source, message string) {
+func (t *Tracer) AddEvent(ts time.Time, source, message string) {
 	t.timeline.Add(newEvent(ts, source, message))
 }
 
+func NewTimeline() *Timeline {
+	return &Timeline{
+		seen: make(map[string]bool),
+	}
+}
+
 type Timeline struct {
-	events []*TimeLineEvent
+	events []*TimelineEvent
 	seen   map[string]bool
 	mu     sync.Mutex
 }
 
-func (tl *Timeline) Add(event *TimeLineEvent) {
+func (tl *Timeline) Add(event *TimelineEvent) {
+	if event.Timestamp.IsZero() { // ignore zero time event
+		return
+	}
 	tl.mu.Lock()
 	defer tl.mu.Unlock()
 	tl.events = append(tl.events, event)
 }
 
-func (tl *Timeline) Print(w io.Writer) {
+func (tl *Timeline) Print(w io.Writer) (int, error) {
 	tl.mu.Lock()
 	defer tl.mu.Unlock()
 
-	tls := make([]*TimeLineEvent, 0, len(tl.events))
-	for _, e := range tl.events {
-		if e.Timestamp == nil {
-			continue
-		}
-		tls = append(tls, e)
-	}
+	tls := make([]*TimelineEvent, 0, len(tl.events))
+	tls = append(tls, tl.events...)
 	sort.SliceStable(tls, func(i, j int) bool {
-		return (*tls[i].Timestamp).Before(*tls[j].Timestamp)
+		return tls[i].Timestamp.Before(tls[j].Timestamp)
 	})
+	n := 0
 	for _, e := range tls {
 		s := e.String()
 		if !tl.seen[s] {
-			fmt.Fprint(w, e.String())
+			l, err := fmt.Fprint(w, e.String())
+			if err != nil {
+				return n, err
+			}
+			n += l
 			tl.seen[s] = true
 		}
 	}
+	return n, nil
 }
 
-type TimeLineEvent struct {
-	Timestamp *time.Time
+type TimelineEvent struct {
+	Timestamp time.Time
 	Source    string
 	Message   string
 }
 
-func (e *TimeLineEvent) String() string {
+func (e *TimelineEvent) String() string {
 	ts := e.Timestamp.In(time.Local)
 	return fmt.Sprintf("%s\t%s\t%s\n", ts.Format(TimeFormat), e.Source, e.Message)
 }
@@ -107,19 +117,17 @@ func New(ctx context.Context) (*Tracer, error) {
 
 func NewWithConfig(config aws.Config) (*Tracer, error) {
 	return &Tracer{
-		ecs:  ecs.NewFromConfig(config),
-		logs: cloudwatchlogs.NewFromConfig(config),
-		sns:  sns.NewFromConfig(config),
-		timeline: &Timeline{
-			seen: make(map[string]bool),
-		},
-		buf: new(bytes.Buffer),
-		w:   os.Stdout,
+		ecs:      ecs.NewFromConfig(config),
+		logs:     cloudwatchlogs.NewFromConfig(config),
+		sns:      sns.NewFromConfig(config),
+		timeline: NewTimeline(),
+		buf:      new(bytes.Buffer),
+		w:        os.Stdout,
 	}, nil
 }
 
-func newEvent(ts *time.Time, src, msg string) *TimeLineEvent {
-	return &TimeLineEvent{
+func newEvent(ts time.Time, src, msg string) *TimelineEvent {
+	return &TimelineEvent{
 		Timestamp: ts,
 		Source:    src,
 		Message:   msg,
@@ -239,18 +247,18 @@ func (t *Tracer) traceTask(ctx context.Context, cluster string, taskID string) (
 		t.fetchServiceEvents(ctx, cluster, taskGroup[1])
 	}
 
-	t.AddEvent(task.CreatedAt, "TASK", "Created")
-	t.AddEvent(task.ConnectivityAt, "TASK", "Connected")
-	t.AddEvent(task.StartedAt, "TASK", "Started")
-	t.AddEvent(task.PullStartedAt, "TASK", "Pull started")
-	t.AddEvent(task.PullStoppedAt, "TASK", "Pull stopped")
-	t.AddEvent(task.StoppedAt, "TASK", "Stopped")
-	t.AddEvent(task.StoppingAt, "TASK", "Stopping")
+	t.AddEvent(aws.ToTime(task.CreatedAt), "TASK", "Created")
+	t.AddEvent(aws.ToTime(task.ConnectivityAt), "TASK", "Connected")
+	t.AddEvent(aws.ToTime(task.StartedAt), "TASK", "Started")
+	t.AddEvent(aws.ToTime(task.PullStartedAt), "TASK", "Pull started")
+	t.AddEvent(aws.ToTime(task.PullStoppedAt), "TASK", "Pull stopped")
+	t.AddEvent(aws.ToTime(task.StoppedAt), "TASK", "Stopped")
+	t.AddEvent(aws.ToTime(task.StoppingAt), "TASK", "Stopping")
 	if task.StoppedReason != nil {
-		t.AddEvent(task.StoppingAt, "TASK", "StoppedReason:"+*task.StoppedReason)
+		t.AddEvent(aws.ToTime(task.StoppingAt), "TASK", "StoppedReason:"+aws.ToString(task.StoppedReason))
 	}
-	t.AddEvent(task.StoppingAt, "TASK", "StoppedCode:"+string(task.StopCode))
-	t.AddEvent(task.ExecutionStoppedAt, "TASK", "Execution stopped")
+	t.AddEvent(aws.ToTime(task.StoppingAt), "TASK", "StoppedCode:"+string(task.StopCode))
+	t.AddEvent(aws.ToTime(task.ExecutionStoppedAt), "TASK", "Execution stopped")
 
 	for _, c := range task.Containers {
 		containerName := *c.Name
@@ -261,10 +269,10 @@ func (t *Tracer) traceTask(ctx context.Context, cluster string, taskID string) (
 		if c.Reason != nil {
 			msg += fmt.Sprintf(" (reason: %s)", *c.Reason)
 		}
-		t.AddEvent(&t.now, "CONTAINER:"+containerName, msg)
+		t.AddEvent(t.now, "CONTAINER:"+containerName, msg)
 	}
 
-	t.AddEvent(&t.now, "TASK", "LastStatus:"+aws.ToString(task.LastStatus))
+	t.AddEvent(t.now, "TASK", "LastStatus:"+aws.ToString(task.LastStatus))
 
 	return &task, nil
 }
@@ -321,9 +329,9 @@ func (t *Tracer) fetchServiceEvents(ctx context.Context, cluster, service string
 		return fmt.Errorf("no services found: %w", err)
 	}
 	for _, e := range res.Services[0].Events {
-		ts := *e.CreatedAt
+		ts := aws.ToTime(e.CreatedAt)
 		if ts.After(t.headBegin) && ts.Before(t.headEnd) || ts.After(t.tailBegin) && ts.Before(t.tailEnd) {
-			t.AddEvent(e.CreatedAt, "SERVICE", *e.Message)
+			t.AddEvent(ts, "SERVICE", aws.ToString(e.Message))
 		}
 	}
 	return nil
@@ -358,7 +366,7 @@ func (t *Tracer) fetchLogs(ctx context.Context, containerName, group, stream str
 		fetched++
 		for _, e := range res.Events {
 			ts := msecToTime(aws.ToInt64(e.Timestamp))
-			t.AddEvent(&ts, "CONTAINER:"+containerName, aws.ToString(e.Message))
+			t.AddEvent(ts, "CONTAINER:"+containerName, aws.ToString(e.Message))
 		}
 		if aws.ToString(nextToken) == aws.ToString(res.NextForwardToken) {
 			break

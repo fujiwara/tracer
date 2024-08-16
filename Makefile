@@ -3,3 +3,6 @@ tracer: *.go *.go cmd/tracer/*
 
 install:
 	go install github.com/fujiwara/tracer/cmd/tracer
+
+test:
+	go test -v ./...
