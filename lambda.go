@@ -2,7 +2,7 @@ package tracer
 
 import (
 	"context"
-	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws/arn"
@@ -10,7 +10,7 @@ import (
 
 func (t *Tracer) LambdaHandlerFunc(opt *RunOption) func(ctx context.Context, event *ECSTaskEvent) error {
 	return func(ctx context.Context, event *ECSTaskEvent) error {
-		fmt.Println(event.String())
+		slog.Info("event", "payload", event.String())
 		lastStatus := event.Detail.LastStatus
 		if lastStatus != "STOPPED" {
 			return nil

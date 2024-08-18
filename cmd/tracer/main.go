@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"log/slog"
 	"os"
 	"strings"
 	"time"
@@ -43,8 +44,13 @@ func main() {
 	flag.BoolVar(&showVersion, "version", false, "show the version")
 	flag.BoolVar(&opt.Stdout, "stdout", true, "output to stdout")
 	flag.StringVar(&opt.SNSTopicArn, "sns", "", "SNS topic ARN")
+	flag.BoolVar(&opt.JSON, "json", false, "output as JSON lines")
 	flag.VisitAll(envToFlag)
 	flag.Parse()
+
+	if opt.JSON {
+		slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, nil)))
+	}
 
 	if showVersion {
 		fmt.Println("tracer", Version)
@@ -60,7 +66,7 @@ func main() {
 	copy(args, flag.Args())
 
 	if err := t.Run(ctx, args[0], args[1], &opt); err != nil {
-		fmt.Fprintln(os.Stderr, err)
+		slog.Error(err.Error())
 		os.Exit(1)
 	}
 }

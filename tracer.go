@@ -3,8 +3,10 @@ package tracer
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"sort"
 	"strings"
@@ -71,7 +73,7 @@ func (tl *Timeline) Add(event *TimelineEvent) {
 	tl.events = append(tl.events, event)
 }
 
-func (tl *Timeline) Print(w io.Writer) (int, error) {
+func (tl *Timeline) Print(w io.Writer, json bool) (int, error) {
 	tl.mu.Lock()
 	defer tl.mu.Unlock()
 
@@ -81,16 +83,23 @@ func (tl *Timeline) Print(w io.Writer) (int, error) {
 		return tls[i].Timestamp.Before(tls[j].Timestamp)
 	})
 	n := 0
-	for _, e := range tls {
-		s := e.String()
-		if !tl.seen[s] {
-			l, err := fmt.Fprint(w, e.String())
-			if err != nil {
-				return n, err
-			}
-			n += l
-			tl.seen[s] = true
+	toString := func(e *TimelineEvent) string {
+		if json {
+			return e.JSON()
 		}
+		return e.String()
+	}
+	for _, e := range tls {
+		s := toString(e)
+		if tl.seen[s] {
+			continue
+		}
+		l, err := fmt.Fprint(w, s)
+		if err != nil {
+			return n, err
+		}
+		n += l
+		tl.seen[s] = true
 	}
 	return n, nil
 }
@@ -104,6 +113,20 @@ type TimelineEvent struct {
 func (e *TimelineEvent) String() string {
 	ts := e.Timestamp.In(time.Local)
 	return fmt.Sprintf("%s\t%s\t%s\n", ts.Format(TimeFormat), e.Source, e.Message)
+}
+
+func (e *TimelineEvent) JSON() string {
+	ts := e.Timestamp.In(time.Local)
+	b, _ := json.Marshal(struct {
+		Time    string `json:"time"`
+		Source  string `json:"src"`
+		Message string `json:"msg"`
+	}{
+		Time:    ts.Format(TimeFormat),
+		Source:  e.Source,
+		Message: e.Message,
+	})
+	return string(b) + "\n"
 }
 
 func New(ctx context.Context) (*Tracer, error) {
@@ -138,6 +161,7 @@ type RunOption struct {
 	Stdout      bool
 	SNSTopicArn string
 	Duration    time.Duration
+	JSON        bool
 }
 
 func (t *Tracer) SetOutput(w io.Writer) {
@@ -151,7 +175,7 @@ func (t *Tracer) Run(ctx context.Context, cluster string, taskID string, opt *Ru
 	defer func() { t.report(ctx, cluster, taskID) }()
 
 	if cluster == "" {
-		return t.listClusters(ctx)
+		return t.listClusters(ctx, opt)
 	}
 
 	if taskID == "" {
@@ -162,6 +186,12 @@ func (t *Tracer) Run(ctx context.Context, cluster string, taskID string, opt *Ru
 	if err != nil {
 		return err
 	}
+
+	defer func() {
+		if _, err := t.timeline.Print(t.buf, opt.JSON); err != nil {
+			slog.Error("failed to print timeline", "error", err)
+		}
+	}()
 	if err := t.traceLogs(ctx, task); err != nil {
 		return err
 	}
@@ -172,14 +202,19 @@ func (t *Tracer) Run(ctx context.Context, cluster string, taskID string, opt *Ru
 func (t *Tracer) report(ctx context.Context, cluster, taskID string) {
 	opt := t.option
 	if opt.Stdout {
-		fmt.Fprintln(t.w, subject(cluster, taskID))
+		sub := &subject{cluster, taskID}
+		if opt.JSON {
+			fmt.Fprintln(t.w, sub.JSON())
+		} else {
+			fmt.Fprintln(t.w, sub.String())
+		}
 		if _, err := t.WriteTo(t.w); err != nil {
-			fmt.Fprintln(os.Stderr, err)
+			slog.Error("failed to write to output", "error", err)
 		}
 	}
 	if opt.SNSTopicArn != "" {
 		if err := t.Publish(ctx, opt.SNSTopicArn, cluster, taskID); err != nil {
-			fmt.Fprintln(os.Stderr, err)
+			slog.Error("failed to publish to SNS", "error", err)
 		}
 	}
 }
@@ -189,19 +224,29 @@ func (t *Tracer) WriteTo(w io.Writer) (int64, error) {
 	return int64(n), err
 }
 
-func subject(cluster, taskID string) string {
-	s := "Tracer:"
-	if taskID != "" {
-		s += " " + taskID
-	} else if cluster != "" {
-		s += " tasks"
+type subject struct {
+	Cluster string `json:"cluster"`
+	TaskID  string `json:"task_id"`
+}
+
+func (s *subject) JSON() string {
+	b, _ := json.Marshal(s)
+	return string(b)
+}
+
+func (s *subject) String() string {
+	str := "Tracer:"
+	if s.TaskID != "" {
+		str += " " + s.TaskID
+	} else if s.Cluster != "" {
+		str += " tasks"
 	}
-	if cluster != "" {
-		s += " on " + cluster
+	if s.Cluster != "" {
+		str += " on " + s.Cluster
 	} else {
-		s += " clusters"
+		str += " clusters"
 	}
-	return s
+	return str
 }
 
 const (
@@ -215,7 +260,7 @@ func (t *Tracer) Publish(ctx context.Context, topicArn, cluster, taskID string) 
 		msg = msg[:snsMaxPayloadSize]
 	}
 
-	s := subject(cluster, taskID)
+	s := (&subject{cluster, taskID}).String()
 	if len(s) > snsSubjectLimitLength {
 		s = s[0:snsSubjectLimitLength-len(ellipsisString)] + ellipsisString
 	}
@@ -236,7 +281,7 @@ func (t *Tracer) traceTask(ctx context.Context, cluster string, taskID string) (
 		return nil, fmt.Errorf("failed to describe tasks: %w", err)
 	}
 	if len(res.Tasks) == 0 {
-		return nil, fmt.Errorf("no tasks found: %w", err)
+		return nil, fmt.Errorf("no tasks found. cluster: %s, task_id: %s", cluster, taskID)
 	}
 	task := res.Tasks[0]
 
@@ -278,8 +323,6 @@ func (t *Tracer) traceTask(ctx context.Context, cluster string, taskID string) (
 }
 
 func (t *Tracer) traceLogs(ctx context.Context, task *ecsTypes.Task) error {
-	defer t.timeline.Print(t.buf)
-
 	res, err := t.ecs.DescribeTaskDefinition(ctx, &ecs.DescribeTaskDefinitionInput{
 		TaskDefinition: task.TaskDefinitionArn,
 	})
@@ -393,7 +436,7 @@ func (t *Tracer) listAllTasks(ctx context.Context, cluster string) error {
 	return nil
 }
 
-func (t *Tracer) listClusters(ctx context.Context) error {
+func (t *Tracer) listClusters(ctx context.Context, opt *RunOption) error {
 	res, err := t.ecs.ListClusters(ctx, &ecs.ListClustersInput{})
 	if err != nil {
 		return err
@@ -403,6 +446,17 @@ func (t *Tracer) listClusters(ctx context.Context) error {
 		clusters = append(clusters, arnToName(c))
 	}
 	sort.Strings(clusters)
+	if opt.JSON {
+		err := json.NewEncoder(t.buf).Encode(
+			struct {
+				Clusters []string `json:"clusters"`
+			}{clusters},
+		)
+		if err != nil {
+			return fmt.Errorf("failed to encode JSON: %w", err)
+		}
+		return nil
+	}
 	for _, c := range clusters {
 		t.buf.WriteString(c)
 		t.buf.WriteByte('\n')
@@ -431,9 +485,13 @@ func (t *Tracer) listTasks(ctx context.Context, cluster string, status ecsTypes.
 		if err != nil {
 			return fmt.Errorf("failed to describe tasks: %w", err)
 		}
-		for _, task := range res.Tasks {
-			t.buf.WriteString(strings.Join(taskToColumns(&task), "\t"))
-			t.buf.WriteRune('\n')
+		for _, ts := range res.Tasks {
+			task := newTask(&ts)
+			if t.option.JSON {
+				t.buf.WriteString(task.JSON())
+			} else {
+				t.buf.WriteString(task.String())
+			}
 		}
 		if nextToken = listRes.NextToken; nextToken == nil {
 			break
@@ -480,14 +538,41 @@ func arnToName(arn string) string {
 	return arn[strings.LastIndex(arn, "/")+1:]
 }
 
-func taskToColumns(task *ecsTypes.Task) []string {
-	return []string{
-		arnToName(*task.TaskArn),
-		arnToName(*task.TaskDefinitionArn),
-		aws.ToString(task.LastStatus),
-		aws.ToString(task.DesiredStatus),
-		task.CreatedAt.In(time.Local).Format(time.RFC3339),
-		aws.ToString(task.Group),
-		string(task.LaunchType),
+type task struct {
+	Arn            string `json:"arn"`
+	TaskDefinition string `json:"task_definition"`
+	LastStatus     string `json:"last_status"`
+	DesiredStatus  string `json:"desired_status"`
+	CreatedAt      string `json:"created_at"`
+	Group          string `json:"group"`
+	LaunchType     string `json:"launch_type"`
+}
+
+func newTask(t *ecsTypes.Task) *task {
+	return &task{
+		Arn:            arnToName(*t.TaskArn),
+		TaskDefinition: arnToName(*t.TaskDefinitionArn),
+		LastStatus:     aws.ToString(t.LastStatus),
+		DesiredStatus:  aws.ToString(t.DesiredStatus),
+		CreatedAt:      t.CreatedAt.In(time.Local).Format(time.RFC3339),
+		Group:          aws.ToString(t.Group),
+		LaunchType:     string(t.LaunchType),
 	}
+}
+
+func (t *task) String() string {
+	return strings.Join([]string{
+		t.Arn,
+		t.TaskDefinition,
+		t.LastStatus,
+		t.DesiredStatus,
+		t.CreatedAt,
+		t.Group,
+		t.LaunchType,
+	}, "\t") + "\n"
+}
+
+func (t *task) JSON() string {
+	b, _ := json.Marshal(t)
+	return string(b) + "\n"
 }

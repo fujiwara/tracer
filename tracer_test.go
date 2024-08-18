@@ -49,6 +49,11 @@ var (
 2021-01-02T03:04:05.123Z	test_source 5	test message 5
 2021-01-02T03:04:06.123Z	test_source 2	test message 2
 `
+	expectedJSONOutput = `{"time":"2021-01-02T03:04:05.123Z","source":"test_source 1","message":"test message 1"}
+{"time":"2021-01-02T03:04:05.123Z","source":"test_source 3","message":"test message 3"}
+{"time":"2021-01-02T03:04:05.123Z","source":"test_source 5","message":"test message 5"}
+{"time":"2021-01-02T03:04:06.123Z","source":"test_source 2","message":"test message 2"}
+`
 )
 
 func TestTimelineEvent(t *testing.T) {
@@ -71,15 +76,30 @@ func TestTimeline(t *testing.T) {
 		ev := ev
 		tl.Add(&ev)
 	}
-	b := new(strings.Builder)
-	n, err := tl.Print(b)
-	if err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
-	if n != len(expectedOutput) {
-		t.Errorf("unexpected length: %d", n)
-	}
-	if b.String() != expectedOutput {
-		t.Errorf("unexpected output: %s", b.String())
-	}
+	t.Run("Print(plaintext)", func(t *testing.T) {
+		b := new(strings.Builder)
+		n, err := tl.Print(b, false)
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+		if n != len(expectedOutput) {
+			t.Errorf("unexpected length: %d", n)
+		}
+		if b.String() != expectedOutput {
+			t.Errorf("unexpected output: %s", b.String())
+		}
+	})
+	t.Run("Print(json)", func(t *testing.T) {
+		b := new(strings.Builder)
+		n, err := tl.Print(b, true)
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+		if n != len(expectedJSONOutput) {
+			t.Errorf("unexpected length: %d", n)
+		}
+		if b.String() != expectedJSONOutput {
+			t.Errorf("unexpected output: %s", b.String())
+		}
+	})
 }
