@@ -15,4 +15,4 @@
 .envrc
 cmd/tracer/tracer
 dist/
-tracer
+./tracer
