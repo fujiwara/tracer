@@ -49,10 +49,10 @@ var (
 2021-01-02T03:04:05.123Z	test_source 5	test message 5
 2021-01-02T03:04:06.123Z	test_source 2	test message 2
 `
-	expectedJSONOutput = `{"time":"2021-01-02T03:04:05.123Z","source":"test_source 1","message":"test message 1"}
-{"time":"2021-01-02T03:04:05.123Z","source":"test_source 3","message":"test message 3"}
-{"time":"2021-01-02T03:04:05.123Z","source":"test_source 5","message":"test message 5"}
-{"time":"2021-01-02T03:04:06.123Z","source":"test_source 2","message":"test message 2"}
+	expectedJSONOutput = `{"time":"2021-01-02T03:04:05.123Z","src":"test_source 1","msg":"test message 1"}
+{"time":"2021-01-02T03:04:05.123Z","src":"test_source 3","msg":"test message 3"}
+{"time":"2021-01-02T03:04:05.123Z","src":"test_source 5","msg":"test message 5"}
+{"time":"2021-01-02T03:04:06.123Z","src":"test_source 2","msg":"test message 2"}
 `
 )
 
