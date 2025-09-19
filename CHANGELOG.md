@@ -1,5 +1,9 @@
 # Changelog
 
+## [v1.1.2](https://github.com/fujiwara/tracer/compare/v1.1.1...v1.1.2) - 2025-09-19
+- Bump the aws-sdk-go-v2 group with 2 updates by @dependabot[bot] in https://github.com/fujiwara/tracer/pull/19
+- Immutable release by @fujiwara in https://github.com/fujiwara/tracer/pull/27
+
 ## [v1.1.1](https://github.com/fujiwara/tracer/compare/v1.1.0...v1.1.1) - 2025-03-21
 - Add Dependabot configuration, replace release workflow with tagpr based release by @fujiwara in https://github.com/fujiwara/tracer/pull/15
 - Bump the aws-sdk-go-v2 group with 5 updates by @dependabot in https://github.com/fujiwara/tracer/pull/17
