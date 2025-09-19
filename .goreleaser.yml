@@ -17,6 +17,8 @@ builds:
       - amd64
       - arm64
 archives:
+release:
+  use_existing_draft: true
 checksum:
   name_template: "checksums.txt"
 snapshot:
