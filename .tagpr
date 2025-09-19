@@ -45,4 +45,5 @@
 [tagpr]
 	vPrefix = true
 	releaseBranch = v1
-	versionFile = -
+	versionFile = cmd/tracer/main.go
+	release = draft
