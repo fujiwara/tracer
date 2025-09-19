@@ -14,7 +14,7 @@ import (
 	"github.com/fujiwara/tracer"
 )
 
-var Version = "v1.1.1"
+var Version = "v1.1.2"
 
 func init() {
 	flag.Usage = func() {
