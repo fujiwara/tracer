@@ -1,5 +1,7 @@
 # Changelog
 
+## [v1.1.4](https://github.com/fujiwara/tracer/compare/v1.1.3...v1.1.4) - 2025-11-30
+
 ## [v1.1.3](https://github.com/fujiwara/tracer/compare/v1.1.2...v1.1.3) - 2025-11-30
 - update aws-sdk-go-v2 to latest by @fujiwara in https://github.com/fujiwara/tracer/pull/30
 
